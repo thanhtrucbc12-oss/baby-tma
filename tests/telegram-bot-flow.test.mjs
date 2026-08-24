@@ -138,10 +138,28 @@ test('shows bot help with commands', () => {
 
   assert.equal(reply.action, 'help');
   assert.match(reply.text, /\/profile/);
+  assert.match(reply.text, /\/partner/);
   assert.match(reply.text, /\/reminders_on/);
   assert.match(reply.text, /\/terms/);
   assert.match(reply.text, /\/paysupport/);
   assert.match(reply.text, /\/reset/);
+  assert.equal(reply.reply_markup.inline_keyboard[1][0].text, 'Стать партнёром');
+  assert.equal(reply.reply_markup.inline_keyboard[1][0].web_app.url, 'https://example.test/app?partner=1');
+});
+
+test('opens the partner application inside the Telegram Mini App', () => {
+  const reply = buildBotReply({
+    text: '/partner',
+    firstName: 'Анна',
+    baby: { name: 'Миша' },
+    miniAppUrl: 'https://example.test/baby-tma/'
+  });
+
+  assert.equal(reply.action, 'partner_portal');
+  assert.match(reply.text, /Партнёрская программа/);
+  assert.match(reply.text, /прямо внутри Telegram/);
+  assert.equal(reply.reply_markup.inline_keyboard[0][0].text, 'Стать партнёром');
+  assert.equal(reply.reply_markup.inline_keyboard[0][0].web_app.url, 'https://example.test/baby-tma/?partner=1');
 });
 
 test('shows premium terms and the public terms page', () => {

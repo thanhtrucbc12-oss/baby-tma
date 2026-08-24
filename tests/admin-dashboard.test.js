@@ -188,6 +188,8 @@ test('admin page compiles and labels mixed billing identities as clients', () =>
   assert.ok(html.includes('id="partnerRecruitPromo"'));
   assert.ok(html.includes('<script src="promo-copy.js'));
   assert.ok(html.includes("script-src 'self' 'unsafe-inline'"));
+  const adminActions = fs.readFileSync('./supabase/functions/admin-actions/index.ts', 'utf8');
+  assert.ok(adminActions.includes("{ command: 'partner', description: 'Стать партнёром' }"));
 });
 
 function row(eventName, userId, clientId, createdAt, payload = {}, attribution = {}) {

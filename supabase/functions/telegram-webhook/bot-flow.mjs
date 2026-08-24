@@ -27,6 +27,14 @@ export function buildBotReply({ text = '', firstName = '', baby = null, miniAppU
     };
   }
 
+  if (cleanText === '/partner') {
+    return {
+      action: 'partner_portal',
+      text: '🤝 Партнёрская программа «Режим Малыша»\n\nПодайте заявку прямо внутри Telegram. После одобрения в кабинете появятся персональные ссылки для бота и веб-версии, статистика и сумма вознаграждения.',
+      reply_markup: partnerKeyboard(miniAppUrl)
+    };
+  }
+
   if (reminderConsent !== null) {
     return {
       action: reminderConsent ? 'enable_reminders' : 'disable_reminders',
@@ -41,7 +49,7 @@ export function buildBotReply({ text = '', firstName = '', baby = null, miniAppU
     return {
       action: 'help',
       text: buildHelpText(),
-      reply_markup: openAppKeyboard(miniAppUrl)
+      reply_markup: helpKeyboard(miniAppUrl)
     };
   }
 
@@ -196,7 +204,7 @@ function buildProfileText(baby = {}) {
 }
 
 function buildHelpText() {
-  return `Я помогу с режимом малыша: сон, кормления, дневник, ИИ-подсказки и напоминания.\n\nКоманды:\n/start — начать заново\n/profile — профиль малыша\n/reminders_on — включить напоминания\n/reminders_off — отключить напоминания\n/terms — условия Premium\n/paysupport — помощь с оплатой\n/reset — сбросить профиль малыша\n/help — помощь\n\nМожно просто открыть мини-приложение и собрать режим на сегодня.`;
+  return `Я помогу с режимом малыша: сон, кормления, дневник, ИИ-подсказки и напоминания.\n\nКоманды:\n/start — начать заново\n/profile — профиль малыша\n/partner — стать партнёром\n/reminders_on — включить напоминания\n/reminders_off — отключить напоминания\n/terms — условия Premium\n/paysupport — помощь с оплатой\n/reset — сбросить профиль малыша\n/help — помощь\n\nМожно просто открыть мини-приложение и собрать режим на сегодня.`;
 }
 
 function parseDateOnly(value) {
@@ -222,6 +230,34 @@ function welcomeKeyboard(miniAppUrl, returning = false) {
       web_app: { url: miniAppUrl }
     }]]
   };
+}
+
+function partnerKeyboard(miniAppUrl) {
+  return {
+    inline_keyboard: [[{
+      text: 'Стать партнёром',
+      web_app: { url: partnerAppUrl(miniAppUrl) }
+    }]]
+  };
+}
+
+function helpKeyboard(miniAppUrl) {
+  return {
+    inline_keyboard: [
+      [{ text: 'Открыть приложение', web_app: { url: miniAppUrl } }],
+      [{ text: 'Стать партнёром', web_app: { url: partnerAppUrl(miniAppUrl) } }]
+    ]
+  };
+}
+
+function partnerAppUrl(miniAppUrl) {
+  try {
+    const url = new URL(miniAppUrl);
+    url.searchParams.set('partner', '1');
+    return url.toString();
+  } catch (_) {
+    return miniAppUrl;
+  }
 }
 
 function skipBirthdateKeyboard(miniAppUrl) {

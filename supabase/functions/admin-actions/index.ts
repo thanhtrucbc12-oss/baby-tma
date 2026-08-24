@@ -48,6 +48,7 @@ Deno.serve(async (req) => {
       commands: [
         { command: 'start', description: 'Открыть Режим малыша' },
         { command: 'profile', description: 'Профиль малыша' },
+        { command: 'partner', description: 'Стать партнёром' },
         { command: 'reminders_on', description: 'Включить напоминания' },
         { command: 'reminders_off', description: 'Отключить напоминания' },
         { command: 'terms', description: 'Условия Premium и оплаты' },
