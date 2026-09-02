@@ -6,7 +6,7 @@
   const PROFILE_UPDATED_KEY = 'babymode_profile_updated_at_v1';
   const BASELINE_TIMESTAMP = '2020-01-01T00:00:00.000Z';
   let syncTimer = null;
-  let syncing = false;
+  let syncPromise = null;
   let bootstrapped = false;
 
   function schedule(delay) {
@@ -15,8 +15,17 @@
   }
 
   async function syncNow() {
-    if (syncing || !global.BabyAccount?.canUseServer() || !global.BABY_SYNC_ENDPOINT) return false;
-    syncing = true;
+    if (syncPromise) return syncPromise;
+    if (!global.BabyAccount?.canUseServer() || !global.BABY_SYNC_ENDPOINT) return false;
+    syncPromise = performSync();
+    try {
+      return await syncPromise;
+    } finally {
+      syncPromise = null;
+    }
+  }
+
+  async function performSync() {
     try {
       if (!bootstrapped) {
         const pullResponse = await global.BabyAccount.request(global.BABY_SYNC_ENDPOINT, {
@@ -37,8 +46,6 @@
       return true;
     } catch (_) {
       return false;
-    } finally {
-      syncing = false;
     }
   }
 

@@ -44,7 +44,7 @@ window.BABY_TELEGRAM_SDK_READY = (function() {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&amp;display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 
-<link rel="stylesheet" href="style.css?v=20260822-2">
+<link rel="stylesheet" href="style.css?v=20260903-1">
 </head>
 <body data-page="home">
 
@@ -128,7 +128,7 @@ window.BABY_TELEGRAM_SDK_READY = (function() {
   <section class="today-plan-card" id="todayPlanCard" style="display:none">
     <div class="section-heading-row">
       <h3>План дня</h3>
-      <button onclick="goPage('schedule',null);hapticLight()">Открыть режим</button>
+      <button onclick="openScheduleFromHome();hapticLight()">Открыть режим</button>
     </div>
     <div id="todayPlanList"></div>
   </section>
@@ -719,7 +719,7 @@ window.BABY_TELEGRAM_SDK_READY = (function() {
 <script src="web-account.js?v=20260822-2"></script>
 <script src="promo-copy.js?v=20260822-1"></script>
 <script src="partners.js?v=20260822-4"></script>
-<script src="cloud-sync.js?v=20260812-1"></script>
+<script src="cloud-sync.js?v=20260903-1"></script>
 <script src="pwa.js?v=20260821-2"></script>
 <script src="chat.js?v=20260812-1"></script>
 <script src="sleep-intelligence.js?v=20260812-1"></script>
@@ -728,10 +728,10 @@ window.BABY_TELEGRAM_SDK_READY = (function() {
 <script src="tracker.js?v=20260812-1"></script>
 <script src="articles.js?v=20260812-1"></script>
 <script src="subscription.js?v=20260822-2"></script>
-<script src="onboarding.js?v=20260812-1"></script>
+<script src="onboarding.js?v=20260903-1"></script>
 <script src="reminder-planner.js?v=20260812-1"></script>
 <script src="notifications.js?v=20260822-2"></script>
-<script src="app.js?v=20260822-2"></script>
+<script src="app.js?v=20260903-1"></script>
 <script src="premium.js?v=20260812-1"></script>
 
 <script>
@@ -1722,7 +1722,7 @@ function confirmDeleteLocalData() {
 
 // ─── DOMContentLoaded init ───────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', function() {
-  if (window.BabyAccount) BabyAccount.init();
+  var accountReady = window.BabyAccount ? BabyAccount.init() : Promise.resolve(false);
   if (window.BabyPWA) BabyPWA.init();
   if (window.BabyAnalytics) BabyAnalytics.track('app_open');
 
@@ -1771,18 +1771,39 @@ window.addEventListener('DOMContentLoaded', function() {
     if (window.BabyCloudSync) BabyCloudSync.syncNow();
   }, { once:true });
 
-  // Start onboarding only once on this device.
-  var hasLaunched = localStorage.getItem('babymode_launched');
-  var partnerIntent = new URLSearchParams(window.location.search).get('partner') === '1';
-  if (partnerIntent && window.BabyPartners) {
-    window.BabyPartners.open();
-  }
-  if (!hasLaunched && !partnerIntent && typeof initOnboarding === 'function') {
-    localStorage.setItem('babymode_launched', '1');
-    initOnboarding();
-  } else if (!hasLaunched && !partnerIntent) {
-    localStorage.setItem('babymode_launched', '1');
-  }
+  // Pull the Telegram profile before onboarding decides which fields are still missing.
+  Promise.resolve(accountReady).then(async function(authenticated) {
+    if (authenticated && window.BabyCloudSync) await BabyCloudSync.syncNow();
+
+    var cloudName = localStorage.getItem('babymode_baby_name') || '';
+    var cloudBirth = localStorage.getItem('babymode_baby_birthdate') || '';
+    _applyBabyName(cloudName);
+    if (cloudBirth && window.BabyMilestones) {
+      var cloudAge = BabyMilestones.getBabyAgeMonths(cloudBirth, new Date());
+      if (cloudAge !== null) {
+        localStorage.setItem('babymode_last_age', String(cloudAge));
+        if (ageEl) ageEl.value = String(_nearestAgeOptionInline(cloudAge));
+      }
+    }
+    renderProfilePage();
+    renderTodayPlan();
+    renderBabyEventCard();
+
+    var hasLaunched = localStorage.getItem('babymode_launched');
+    var partnerIntent = new URLSearchParams(window.location.search).get('partner') === '1';
+    if (partnerIntent && window.BabyPartners) window.BabyPartners.open();
+    if (!hasLaunched && !partnerIntent && typeof initOnboarding === 'function') {
+      localStorage.setItem('babymode_launched', '1');
+      initOnboarding();
+    } else if (!hasLaunched && !partnerIntent) {
+      localStorage.setItem('babymode_launched', '1');
+    }
+  }).catch(function() {
+    if (!localStorage.getItem('babymode_launched') && typeof initOnboarding === 'function') {
+      localStorage.setItem('babymode_launched', '1');
+      initOnboarding();
+    }
+  });
 });
 </script>
 </body>

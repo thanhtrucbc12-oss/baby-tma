@@ -2030,6 +2030,37 @@ body[data-page="premium"] #fabSleepWrap { display:none; }
   gap:9px;
   margin-top:8px;
 }
+.ob-synced-profile {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:12px 14px;
+  margin:0 0 14px;
+  border:1px solid rgba(38,154,111,.24);
+  border-radius:var(--radius-sm);
+  background:#EEFBF5;
+  color:#244C3E;
+  text-align:left;
+}
+.ob-synced-profile span:last-child {
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  min-width:0;
+}
+.ob-synced-profile strong { font-size:.9rem; line-height:1.3; }
+.ob-synced-profile small { color:#4D7567; font-size:.7rem; line-height:1.35; }
+.ob-synced-check {
+  display:grid;
+  place-items:center;
+  flex:0 0 28px;
+  width:28px;
+  height:28px;
+  border-radius:50%;
+  background:#269A6F;
+  color:#fff;
+  font-weight:900;
+}
 .ob-field-label {
   text-align:left;
   color:var(--text-mid);

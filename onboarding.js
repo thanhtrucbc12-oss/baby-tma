@@ -74,24 +74,33 @@ function _renderSlide(idx) {
     const savedName = _sanitizeOnboardingName(localStorage.getItem('babymode_baby_name'));
     const savedBirthdate = /^\d{4}-\d{2}-\d{2}$/.test(localStorage.getItem('babymode_baby_birthdate') || '')
       ? localStorage.getItem('babymode_baby_birthdate') : '';
+    const hasSyncedIdentity = Boolean(savedName && savedBirthdate);
     const savedWakeTime = /^([01]\d|2[0-3]):[0-5]\d$/.test(localStorage.getItem('babymode_wake_time') || '')
       ? localStorage.getItem('babymode_wake_time') : (document.getElementById('wakeTime')?.value || '07:00');
     slidesEl.innerHTML = `
       <div class="ob-slide ob-profile-slide">
         <div class="ob-bubble">${s.emoji}</div>
-        <h2 class="ob-title">${s.title}</h2>
-        <p class="ob-text" style="margin-bottom:14px">${s.text}</p>
+        <h2 class="ob-title">${hasSyncedIdentity ? `Настроим режим для ${_escapeOnboardingHtml(savedName)}` : s.title}</h2>
+        <p class="ob-text" style="margin-bottom:14px">${hasSyncedIdentity ? 'Профиль уже получен из Telegram. Осталось уточнить параметры режима.' : s.text}</p>
+        ${hasSyncedIdentity ? `
+          <div class="ob-synced-profile" role="status">
+            <span class="ob-synced-check" aria-hidden="true">✓</span>
+            <span><strong>${_escapeOnboardingHtml(savedName)}</strong><small>${_formatOnboardingBirthdate(savedBirthdate)} · синхронизировано с ботом</small></span>
+          </div>
+          <input id="obBabyName" type="hidden" value="${_escapeOnboardingAttribute(savedName)}">
+          <input id="obBabyBirthdate" type="hidden" value="${_escapeOnboardingAttribute(savedBirthdate)}">
+        ` : ''}
         <div class="ob-profile-grid">
-          <label class="ob-field-label">Имя малыша
+          ${hasSyncedIdentity ? '' : `<label class="ob-field-label">Имя малыша
             <input class="ob-name-input" id="obBabyName" type="text" placeholder="Например, Артем" maxlength="20"
               value="${_escapeOnboardingAttribute(savedName)}"
               oninput="this.value=this.value.replace(/[^а-яёА-ЯЁa-zA-Z\\s-]/g,'')">
-          </label>
-          <label class="ob-field-label">Дата рождения
+          </label>`}
+          ${hasSyncedIdentity ? '' : `<label class="ob-field-label">Дата рождения
             <input class="ob-name-input ob-birth-input" id="obBabyBirthdate" type="date"
               max="${new Date().toISOString().slice(0, 10)}"
               value="${_escapeOnboardingAttribute(savedBirthdate)}">
-          </label>
+          </label>`}
           <label class="ob-field-label">Обычный подъем
             <input class="ob-name-input" id="obWakeTime" type="time" value="${_escapeOnboardingAttribute(savedWakeTime)}">
           </label>
@@ -103,7 +112,7 @@ function _renderSlide(idx) {
         </div>
       </div>
     `;
-    setTimeout(() => document.getElementById('obBabyName')?.focus(), 250);
+    setTimeout(() => document.querySelector(hasSyncedIdentity ? '#obWakeTime' : '#obBabyName')?.focus(), 250);
   } else if (s.type === 'reminders') {
     const pref = localStorage.getItem('babymode_notif_enabled');
     const checked = pref === 'tg' || pref === 'pending' || !pref;
@@ -261,6 +270,17 @@ function _sanitizeOnboardingName(value) {
 
 function _escapeOnboardingAttribute(value) {
   return String(value || '').replace(/[&"<>]/g, char => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;' })[char]);
+}
+
+function _escapeOnboardingHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, char => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+  })[char]);
+}
+
+function _formatOnboardingBirthdate(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}.${match[2]}.${match[1]}` : '';
 }
 
 function saveOnboardingReminderConsent() {

@@ -82,6 +82,7 @@ function buildSchedule(age,wakeMin,feedType,activity,bufferMin,shifts){
   for(let i=0;i<p.nd.length;i++){
     const ns=napStarts[i],ne=ns+p.nd[i];
     const next=i<p.nd.length-1?napStarts[i+1]:null;
+    let servedLunchBeforeNap=false;
 
     if(i===0&&activity!=='home'&&ns-cur>65){
       push('walk','🌳','Утренняя прогулка','Свежий воздух и солнечный свет — лучший регулятор биоритмов',Math.min(50,ns-cur-20));
@@ -89,7 +90,11 @@ function buildSchedule(age,wakeMin,feedType,activity,bufferMin,shifts){
     if(ns-cur>15) push('active','🎮','Игры и развитие','Развивающие игры, тактильный контакт, гимнастика',0);
 
     const napH=Math.floor((ns/60)%24);
-    if(hasSolids&&napH>=11&&napH<=13&&ns-cur>=25){cur=Math.max(cur,ns-25);push('feed','🥗','Обед','Суп, овощное пюре или каша с белком',20);}
+    if(hasSolids&&napH>=11&&napH<=13&&ns-cur>=25){
+      cur=Math.max(cur,ns-25);
+      push('feed','🥗','Обед','Суп, овощное пюре или каша с белком',20);
+      servedLunchBeforeNap=true;
+    }
 
     cur=Math.max(cur,ns-5);
     push('sleep','😴','Укладывание'+(p.nd.length>1?' сна №'+(i+1):''),'Приглушённый свет, тишина, белый шум',0);
@@ -100,7 +105,8 @@ function buildSchedule(age,wakeMin,feedType,activity,bufferMin,shifts){
     if(!isOld&&feedType!=='solids'){
       push('feed','🍼',feedType==='formula'?'Кормление смесью':'Кормление','После сна — кормление',20);
     } else if(hasSolids){
-      const ml=i===0&&p.nd.length>1?['🥗','Обед','Суп или пюре с белком']:
+      const ml=servedLunchBeforeNap?['🍎','Полдник','Фрукты, творог или кисломолочное']:
+               i===0&&p.nd.length>1?['🥗','Обед','Суп или пюре с белком']:
                i===0?['🥗','Обед','Полноценный обед']:['🍎','Полдник','Фрукты, творог или кисломолочное'];
       push('feed',ml[0],ml[1],ml[2],20);
     }
@@ -370,6 +376,24 @@ function refreshSchedule(){
   const activity=adj.activity||_activity;
   const{blocks,daySegs,profile:p}=buildSchedule(_age,_wakeMin,_feedType,activity,_bufferMin+adj.buffer,_blockShifts);
   renderSchedule(blocks,daySegs,p);
+}
+
+function openScheduleFromHome(){
+  const ageEl=document.getElementById('ageMonths');
+  const wakeEl=document.getElementById('wakeTime');
+  const feedEl=document.getElementById('feedType');
+  const activityEl=document.getElementById('activity');
+  _age=parseInt(ageEl&&ageEl.value)||12;
+  const wt=String(wakeEl&&wakeEl.value||'07:00').split(':');
+  _wakeMin=(parseInt(wt[0])||0)*60+(parseInt(wt[1])||0);
+  _feedType=feedEl&&feedEl.value||'breast';
+  _activity=activityEl&&activityEl.value||'home';
+  _situation=window._currentSituation||'normal';
+  _p=getProfile(_age);
+  const adj=getSituationAdjustment(_situation);
+  const result=buildSchedule(_age,_wakeMin,_feedType,adj.activity||_activity,_bufferMin+adj.buffer,_blockShifts);
+  renderSchedule(result.blocks,result.daySegs,result.profile);
+  if(typeof goPage==='function') goPage('schedule',document.getElementById('bn-schedule'));
 }
 
 // ─── Tabs ────────────────────────────────────────────────────────────────────
