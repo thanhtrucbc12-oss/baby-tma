@@ -172,12 +172,13 @@ function mergeManualLog(existing = {}, manual = {}) {
 function getOrCreateLogForDate(logs, date, defaults = {}) {
   let log = logs.find(l => l.date === date);
   if (!log) {
-    const wake = document.getElementById('lgWake')?.value || document.getElementById('wakeTime')?.value || '07:00';
-    const bed = document.getElementById('lgBed')?.value || '19:30';
+    // A quick event is not a completed night: form defaults are not diary data.
+    const wake = defaults.wake || '';
+    const bed = defaults.bed || '';
     log = {
       date,
-      wake: defaults.wake || wake,
-      bed: defaults.bed || bed,
+      wake,
+      bed,
       nap1s: '', nap1e: '', nap2s: '', nap2e: '', nap3s: '', nap3e: '',
       dayNaps: 0,
       nightLen: calcNightLen(bed, wake),
@@ -223,9 +224,9 @@ function finishQuickSleep() {
   const kind = classifySleepEvent(start, end, dur);
   const logs = getLogs();
   rememberDiaryMutation(logs, 'запись сна');
-  const log = getOrCreateLogForDate(logs, localDateKey(start), {
+  const log = getOrCreateLogForDate(logs, localDateKey(start), kind === 'night' ? {
     bed: hm(start), wake: hm(end)
-  });
+  } : {});
 
   log.sleepEvents.push({
     startAt: start.toISOString(),
@@ -1063,6 +1064,7 @@ if (typeof module !== 'undefined') {
     calcDuration,
     calcNightLen,
     classifySleepEvent,
+    getOrCreateLogForDate,
     localDateKey,
     mergeManualLog,
     toMin

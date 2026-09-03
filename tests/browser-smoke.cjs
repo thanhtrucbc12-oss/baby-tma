@@ -35,6 +35,10 @@ const fs = require('node:fs');
     assert.equal(await page.locator('#homeSleepFinish').isDisabled(), true);
     assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('babymode_logs'))[0].sleepEvents.length), 1);
     assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('babymode_logs'))[0].nightWakings || 0), 0);
+    assert.equal(await page.evaluate(() => {
+      const log = JSON.parse(localStorage.getItem('babymode_logs'))[0];
+      return (log.nightLen || 0) + (log.dayNaps || 0);
+    }), 1, 'one-minute timer must not invent a default 11.5-hour night');
     await page.reload({ waitUntil: 'networkidle' });
     assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('babymode_logs'))[0].sleepEvents.length), 1);
 

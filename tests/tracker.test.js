@@ -4,6 +4,7 @@ const {
   calcDayNaps,
   calcNightLen,
   classifySleepEvent,
+  getOrCreateLogForDate,
   localDateKey,
   mergeManualLog
 } = require('../tracker');
@@ -35,6 +36,16 @@ test('counts naps that cross midnight or hour boundaries correctly', () => {
 test('calculates night length across midnight', () => {
   assert.strictEqual(calcNightLen('20:00', '07:15'), 675);
   assert.strictEqual(calcNightLen('20:00', '07:15', 45), 630);
+});
+
+test('quick events do not fabricate an unrecorded night', () => {
+  const logs = [];
+  const empty = getOrCreateLogForDate(logs, '2026-09-04');
+  assert.strictEqual(empty.nightLen, 0);
+  assert.strictEqual(empty.wake, '');
+  assert.strictEqual(empty.bed, '');
+  const night = getOrCreateLogForDate(logs, '2026-09-05', { bed: '21:00', wake: '07:00' });
+  assert.strictEqual(night.nightLen, 600);
 });
 
 test('classifies a long or overnight sleep as night sleep', () => {
