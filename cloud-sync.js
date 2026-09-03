@@ -8,6 +8,7 @@
   let syncTimer = null;
   let syncPromise = null;
   let bootstrapped = false;
+  let generation = 0;
 
   function schedule(delay) {
     clearTimeout(syncTimer);
@@ -17,21 +18,23 @@
   async function syncNow() {
     if (syncPromise) return syncPromise;
     if (!global.BabyAccount?.canUseServer() || !global.BABY_SYNC_ENDPOINT) return false;
-    syncPromise = performSync();
+    const current = performSync(generation);
+    syncPromise = current;
     try {
       return await syncPromise;
     } finally {
-      syncPromise = null;
+      if (syncPromise === current) syncPromise = null;
     }
   }
 
-  async function performSync() {
+  async function performSync(startGeneration) {
     try {
       if (!bootstrapped) {
         const pullResponse = await global.BabyAccount.request(global.BABY_SYNC_ENDPOINT, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: { action: 'pull' }
         });
         const pullData = await pullResponse.json().catch(() => ({}));
+        if (startGeneration !== generation || !global.BabyAccount.canUseServer()) return false;
         if (!pullResponse.ok || !pullData.ok) return false;
         applySnapshot(pullData);
         bootstrapped = true;
@@ -40,6 +43,7 @@
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: buildPayload()
       });
       const data = await response.json().catch(() => ({}));
+      if (startGeneration !== generation || !global.BabyAccount.canUseServer()) return false;
       if (!response.ok || !data.ok) return false;
       applySnapshot(data);
       if (global.BabyAnalytics) global.BabyAnalytics.track('cloud_sync', { diary_days: Array.isArray(data.diary) ? data.diary.length : 0 });
@@ -67,7 +71,7 @@
         wake_time: localStorage.getItem('babymode_wake_time') || '',
         feed_type: localStorage.getItem('babymode_feed_type') || '',
         last_age: localStorage.getItem('babymode_last_age') || '',
-        notifications: localStorage.getItem('babymode_notif_enabled') || '',
+        notifications: ['tg', 'pending'].includes(localStorage.getItem('babymode_notif_enabled')),
         ai_consent: localStorage.getItem('babymode_ai_consent_v2') || '',
         today_schedule: todaySchedule
       },
@@ -94,6 +98,17 @@
     });
     localStorage.setItem('babymode_logs', JSON.stringify([...merged.values()].sort((a, b) => String(a.date).localeCompare(String(b.date)))));
     localStorage.setItem(TOMBSTONES_KEY, JSON.stringify(deleted.slice(-400)));
+    const birthdate = localStorage.getItem('babymode_baby_birthdate');
+    if (birthdate && global.BabyMilestones) {
+      const age = global.BabyMilestones.getBabyAgeMonths(birthdate, new Date());
+      if (age !== null) localStorage.setItem('babymode_last_age', String(age));
+    }
+    for (const [id, key] of [['wakeTime', 'wake_time'], ['feedType', 'feed_type'], ['ageMonths', 'last_age']]) {
+      const input = global.document?.getElementById(id);
+      const value = localStorage.getItem('babymode_' + key);
+      if (input && value) input.value = id === 'ageMonths' && global._nearestAgeOptionInline ? String(global._nearestAgeOptionInline(value)) : value;
+    }
+    if (typeof global._applyBabyName === 'function') global._applyBabyName(localStorage.getItem('babymode_baby_name') || '');
     if (typeof global.renderTracker === 'function') global.renderTracker();
     if (typeof global.renderProfilePage === 'function') global.renderProfilePage();
     if (typeof global.renderTodayPlan === 'function') global.renderTodayPlan();
@@ -119,10 +134,20 @@
     if (!settings || remoteAt < localAt) return;
     if (settings.wake_time) localStorage.setItem('babymode_wake_time', settings.wake_time);
     if (settings.feed_type) localStorage.setItem('babymode_feed_type', settings.feed_type);
-    if (settings.last_age !== null && settings.last_age !== undefined) localStorage.setItem('babymode_last_age', String(settings.last_age));
-    if (settings.notifications !== undefined) localStorage.setItem('babymode_notif_enabled', settings.notifications ? '1' : '0');
-    if (settings.ai_consent === 'granted') localStorage.setItem('babymode_ai_consent_v2', 'granted');
-    if (settings.today_schedule) localStorage.setItem('babymode_today_schedule_v1', JSON.stringify(settings.today_schedule));
+    if (!localStorage.getItem('babymode_baby_birthdate') && settings.last_age !== null && settings.last_age !== undefined) localStorage.setItem('babymode_last_age', String(settings.last_age));
+    if (settings.notifications !== undefined) {
+      const enabled = [true, 'true', '1', 'tg', 'pending'].includes(settings.notifications);
+      localStorage.setItem('babymode_notif_enabled', enabled ? 'tg' : 'no');
+    }
+    if (settings.ai_consent !== undefined) {
+      if (settings.ai_consent === 'granted') localStorage.setItem('babymode_ai_consent_v2', 'granted');
+      else localStorage.removeItem('babymode_ai_consent_v2');
+    }
+    if (settings.today_schedule) {
+      localStorage.setItem('babymode_today_schedule_v1', JSON.stringify(settings.today_schedule));
+      global._lastBlocks = [];
+      global._lastBlocksDate = '';
+    }
     if (updatedAt) localStorage.setItem(SETTINGS_UPDATED_KEY, updatedAt);
   }
 
@@ -165,5 +190,11 @@
   global.BabyCloudSync = { syncNow, schedule, markSettingsChanged, markProfileChanged, recordDeletedDates };
   global.addEventListener('baby-account-ready', event => { if (event.detail?.authenticated) syncNow(); });
   global.addEventListener('baby-account-authenticated', () => syncNow());
+  global.addEventListener('baby-account-logged-out', () => {
+    generation += 1;
+    clearTimeout(syncTimer);
+    bootstrapped = false;
+    syncPromise = null;
+  });
   global.addEventListener('online', () => syncNow());
 })(window);

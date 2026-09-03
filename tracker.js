@@ -930,8 +930,8 @@ function renderTracker() {
       data: {
         labels,
         datasets: [
-          { label:'Дн. сон (ч)', data:dayData, backgroundColor:'rgba(99,102,241,0.7)', borderRadius:6, borderSkipped:false },
-          { label:'Ночной сон (ч)', data:nightData, backgroundColor:'rgba(217,70,239,0.6)', borderRadius:6, borderSkipped:false },
+          { label:'Дн. сон (ч)', data:dayData, backgroundColor:'#36BDA0', borderRadius:6, borderSkipped:false },
+          { label:'Ночной сон (ч)', data:nightData, backgroundColor:'#7466CC', borderRadius:6, borderSkipped:false },
         ]
       },
       options: {

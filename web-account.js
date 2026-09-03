@@ -54,6 +54,8 @@
       mode = isMiniApp() ? 'mini_app' : 'web';
       document.body.classList.toggle('is-web-app', mode === 'web');
       if (mode === 'mini_app') {
+        const miniUser = global.Telegram?.WebApp?.initDataUnsafe?.user;
+        if (miniUser?.id && selectLocalAccount(miniUser.id)) return false;
         authenticated = true;
         hideGate();
         dispatchReady();
@@ -69,8 +71,8 @@
           });
           const data = await response.json().catch(() => ({}));
           if (!response.ok || !data.session_token) throw new Error(data.error || 'handoff_failed');
-          applySession(data);
           checkoutPlan = ['month', 'quarter'].includes(data.checkout_plan) ? data.checkout_plan : handoff.plan;
+          if (applySession(data)) return false;
           hideGate();
           renderAccount();
           dispatchReady();
@@ -92,9 +94,9 @@
           });
           const data = await response.json().catch(() => ({}));
           if (response.ok && data.ok) {
+            if (selectLocalAccount(data.user?.telegram_id)) return false;
             authenticated = true;
             user = data.user || null;
-            applyServerBaby(data.baby);
             if (global.SUB?.claimGuestPremium) await global.SUB.claimGuestPremium();
             hideGate();
             renderAccount();
@@ -138,7 +140,7 @@
       });
       const data = await loginResponse.json().catch(() => ({}));
       if (!loginResponse.ok || !data.session_token) throw new Error(data.error || 'session_failed');
-      applySession(data);
+      if (applySession(data)) return true;
       if (global.SUB?.claimGuestPremium) await global.SUB.claimGuestPremium();
       hideGate();
       renderAccount();
@@ -160,17 +162,19 @@
   }
 
   async function logout() {
+    // Stop sync before the asynchronous revocation request can complete.
+    authenticated = false;
+    global.dispatchEvent(new CustomEvent('baby-account-logged-out', { detail: { mode } }));
     try {
       await request(global.BABY_WEB_AUTH_ENDPOINT, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: { action: 'logout' }
       });
     } catch (_) {}
     clearSession();
-    authenticated = false;
     user = null;
+    if (selectLocalAccount('guest')) return;
     hideGate();
     renderAccount();
-    global.dispatchEvent(new CustomEvent('baby-account-logged-out', { detail: { mode } }));
   }
 
   function clearSession() {
@@ -181,10 +185,26 @@
   }
 
   function applySession(data) {
+    authenticated = false;
     localStorage.setItem(SESSION_KEY, data.session_token);
     localStorage.setItem(SESSION_EXPIRY_KEY, data.expires_at || '');
-    authenticated = true;
     user = data.user || null;
+    if (selectLocalAccount(user?.telegram_id)) return true;
+    authenticated = true;
+    return false;
+  }
+
+  function selectLocalAccount(identity) {
+    if (!identity || !global.BabyAccountStorage) return false;
+    const changed = global.BabyAccountStorage.select(identity);
+    if (!changed) return false;
+    authenticated = false;
+    global.dispatchEvent(new CustomEvent('baby-account-logged-out', { detail: { mode } }));
+    // Reload clears in-memory chat, timers, cached Premium and schedule objects.
+    const url = new URL(global.location.href);
+    if (checkoutPlan) url.searchParams.set('checkout', checkoutPlan);
+    global.location.replace(url.href);
+    return true;
   }
 
   function readCheckoutHandoff() {
@@ -263,6 +283,7 @@
       : authenticated ? `Telegram${user?.username ? ': @' + user.username : ''}` : 'Данные только на этом устройстве';
     if (action) action.textContent = authenticated ? 'Выйти' : 'Войти';
     if (row) row.style.display = mode === 'web' ? 'grid' : 'none';
+    if (row?.classList) row.classList.toggle('is-connected', authenticated);
   }
 
   function handleProfileAction() {
@@ -301,16 +322,14 @@
     return loginSdkPromise;
   }
 
-  function applyServerBaby(baby) {
-    if (!baby) return;
-    if (baby.name) localStorage.setItem('babymode_baby_name', baby.name);
-    if (baby.birthdate) localStorage.setItem('babymode_baby_birthdate', baby.birthdate);
-    if (baby.age_months !== null && baby.age_months !== undefined) localStorage.setItem('babymode_last_age', String(baby.age_months));
-  }
-
   function dispatchReady() {
     renderAccount();
     global.dispatchEvent(new CustomEvent('baby-account-ready', { detail: { mode, authenticated, user, checkoutPlan } }));
+    const plan = new URL(global.location.href).searchParams.get('checkout');
+    if (authenticated && ['month', 'quarter'].includes(plan)) {
+      checkoutPlan = plan;
+      openCheckoutPage('Выберите оплату картой или через СБП.');
+    }
   }
 
   global.BabyAccount = {
@@ -325,5 +344,11 @@
 
   global.addEventListener('keydown', event => {
     if (event.key === 'Escape' && !document.getElementById('webAuthGate')?.hidden) closeLoginPrompt();
+  });
+  global.addEventListener('storage', event => {
+    if (!['babymode_local_owner_v1', SESSION_KEY].includes(event.key)) return;
+    authenticated = false;
+    global.dispatchEvent(new CustomEvent('baby-account-logged-out', { detail: { mode } }));
+    global.location.reload();
   });
 })(window);

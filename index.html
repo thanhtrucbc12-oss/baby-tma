@@ -7,7 +7,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'self'; script-src 'self' 'unsafe-inline' https://telegram.org https://oauth.telegram.org https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' https://jfyprwisnrubhhowipdm.functions.supabase.co; frame-src https://oauth.telegram.org; worker-src 'self' blob:; manifest-src 'self'">
 <title>Малыш в ритме — веб-версия «Режим Малыша»</title>
 <meta name="description" content="Веб-версия «Режим Малыша»: режим дня, дневник сна и персональные подсказки для родителей малышей.">
-<meta name="theme-color" content="#5B5863">
+<meta name="theme-color" content="#F7F8FC">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="manifest" href="manifest.webmanifest?v=20260822-2">
@@ -16,7 +16,7 @@
 <!-- Critical inline CSS -->
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
-  html,body{height:100%;background:#F6F7F6;color:#24212A;font-family:-apple-system,sans-serif}
+  html,body{height:100%;background:#F7F8FC;color:#202238;font-family:-apple-system,sans-serif}
 </style>
 
 <!-- Telegram SDK is only needed inside the Mini App. -->
@@ -44,7 +44,7 @@ window.BABY_TELEGRAM_SDK_READY = (function() {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&amp;display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 
-<link rel="stylesheet" href="style.css?v=20260903-1">
+<link rel="stylesheet" href="style.css?v=20260904-1">
 </head>
 <body data-page="home">
 
@@ -77,7 +77,7 @@ window.BABY_TELEGRAM_SDK_READY = (function() {
     <span class="baby-avatar-edit"><i data-lucide="camera"></i></span>
   </button>
   <div class="app-header-copy">
-    <h1 id="appTitle">Доброе утро</h1>
+    <h1 id="appTitle">Режим Малыша</h1>
     <div class="baby-name" id="babyNameDisplay">Режим Малыша</div>
   </div>
   <div class="trial-badge" id="trial-header-badge" style="display:none">🌸 Premium</div>
@@ -108,10 +108,9 @@ window.BABY_TELEGRAM_SDK_READY = (function() {
       <button onclick="goPage('tracker',document.getElementById('bn-tracker'));hapticLight()">Открыть дневник</button>
     </div>
     <div class="home-quick-grid">
-      <button onclick="fabToggleSleep();hapticLight()"><i data-lucide="moon"></i><span>Сон</span></button>
-      <button onclick="quickSleepTag('night_wake');hapticLight()"><i data-lucide="alarm-clock"></i><span>Пробуждение</span></button>
-      <button onclick="goPage('tracker',document.getElementById('bn-tracker'));hapticLight()"><i data-lucide="notebook-tabs"></i><span>Дневник</span></button>
-      <button onclick="goPage('chat',document.getElementById('bn-chat'));hapticLight()"><i data-lucide="message-circle"></i><span>Помощник</span></button>
+      <button id="homeSleepStart" onclick="startQuickSleep();renderTodayPlan();hapticLight()"><i data-lucide="moon"></i><span>Уснул</span></button>
+      <button id="homeSleepFinish" onclick="finishQuickSleep();hapticLight()" disabled><i data-lucide="sunrise"></i><span>Проснулся</span></button>
+      <button onclick="goPage('tracker',document.getElementById('bn-tracker'));hapticLight()"><i data-lucide="plus"></i><span>Событие</span></button>
     </div>
   </section>
 
@@ -620,7 +619,7 @@ window.BABY_TELEGRAM_SDK_READY = (function() {
 ═══════════════════════════════════════════════════════ -->
 <div id="page-profile" class="page">
   <div class="profile-head">
-    <div class="profile-avatar" id="profileAvatar">👶</div>
+    <div class="profile-avatar" id="profileAvatar" aria-hidden="true">РМ</div>
     <div><h2 id="profileTitle">Профиль малыша</h2><p id="profileAge">Заполните данные для персональных подсказок</p></div>
   </div>
   <div class="card profile-form">
@@ -630,20 +629,20 @@ window.BABY_TELEGRAM_SDK_READY = (function() {
     <button class="save-log-btn" onclick="saveProfileSettings();hapticSuccess()">Сохранить</button>
   </div>
   <div class="profile-menu">
-    <button id="profileAccountRow" style="display:none" onclick="BabyAccount.handleProfileAction();hapticLight()"><span>◉</span><div><strong>Синхронизация</strong><small id="profileAccountStatus">Данные на этом устройстве</small></div><b id="profileAccountAction">Войти</b></button>
-    <button onclick="goPage('premium',null);renderPremiumPage();hapticLight()"><span>⭐</span><div><strong>Premium</strong><small id="profilePremiumStatus">Проверяем статус</small></div><b>›</b></button>
-    <button onclick="goPage('articles',null);hapticLight()"><span>📚</span><div><strong>База знаний</strong><small>Сон, кормление и развитие</small></div><b>›</b></button>
-    <button onclick="goPage('ritual',null);hapticLight()"><span>🌙</span><div><strong>Ритуал сна</strong><small>Таймер и спокойные звуки</small></div><b>›</b></button>
-    <button onclick="BabyPartners.open();hapticLight()"><span>↗</span><div><strong>Партнёрская программа</strong><small>Получить ссылку и видеть вознаграждения</small></div><b>›</b></button>
-    <button onclick="toggleNotifications();hapticLight()"><span>🔔</span><div><strong>Напоминания</strong><small id="profileNotifStatus">Настроить в Telegram</small></div><b>›</b></button>
-    <button onclick="manageAiConsent();hapticLight()"><span>✨</span><div><strong>ИИ и данные</strong><small id="profileAiStatus">Спросим согласие перед первым вопросом</small></div><b>›</b></button>
-    <button onclick="exportAllData();hapticLight()"><span>📥</span><div><strong>Скачать мои данные</strong><small>Профиль, дневник и настройки</small></div><b>›</b></button>
-    <button onclick="importBackupData();hapticLight()"><span>↥</span><div><strong>Восстановить резервную копию</strong><small id="profileBackupStatus">Импортировать сохранённый JSON-файл</small></div><b>›</b></button>
-    <button id="profileInstallRow" style="display:none" onclick="BabyPWA.install();hapticLight()"><span>＋</span><div><strong>Добавить на главный экран</strong><small>Открывать как обычное приложение</small></div><b>›</b></button>
-    <button onclick="openSupport();hapticLight()"><span>💬</span><div><strong>Поддержка</strong><small>Написать в Telegram</small></div><b>›</b></button>
-    <button onclick="window.open('privacy.html','_blank','noopener');hapticLight()"><span>🔐</span><div><strong>Конфиденциальность</strong><small>Как хранятся и используются данные</small></div><b>›</b></button>
-    <button onclick="window.open('terms.html','_blank','noopener');hapticLight()"><span>§</span><div><strong>Условия подписки</strong><small>Оплата, сроки и возврат</small></div><b>›</b></button>
-    <button class="danger-row" onclick="confirmDeleteLocalData();hapticLight()"><span>🗑</span><div><strong>Удалить данные с устройства</strong><small>Очистить профиль и дневник</small></div><b>›</b></button>
+    <button id="profileAccountRow" style="display:none" onclick="BabyAccount.handleProfileAction();hapticLight()"><span><i data-lucide="cloud"></i></span><div><strong>Синхронизация</strong><small id="profileAccountStatus">Данные на этом устройстве</small></div><b id="profileAccountAction">Войти</b></button>
+    <button onclick="goPage('premium',null);renderPremiumPage();hapticLight()"><span><i data-lucide="crown"></i></span><div><strong>Premium</strong><small id="profilePremiumStatus">Проверяем статус</small></div><b><i data-lucide="chevron-right"></i></b></button>
+    <button onclick="goPage('articles',null);hapticLight()"><span><i data-lucide="book-open"></i></span><div><strong>База знаний</strong><small>Сон, кормление и развитие</small></div><b><i data-lucide="chevron-right"></i></b></button>
+    <button onclick="goPage('ritual',null);hapticLight()"><span><i data-lucide="moon"></i></span><div><strong>Ритуал сна</strong><small>Таймер и спокойные звуки</small></div><b><i data-lucide="chevron-right"></i></b></button>
+    <button onclick="BabyPartners.open();hapticLight()"><span><i data-lucide="users"></i></span><div><strong>Партнёрская программа</strong><small>Получить ссылку и видеть вознаграждения</small></div><b><i data-lucide="chevron-right"></i></b></button>
+    <button onclick="toggleNotifications();hapticLight()"><span><i data-lucide="bell"></i></span><div><strong>Напоминания</strong><small id="profileNotifStatus">Настроить в Telegram</small></div><b><i data-lucide="chevron-right"></i></b></button>
+    <button onclick="manageAiConsent();hapticLight()"><span><i data-lucide="shield-check"></i></span><div><strong>ИИ и данные</strong><small id="profileAiStatus">Спросим согласие перед первым вопросом</small></div><b><i data-lucide="chevron-right"></i></b></button>
+    <button onclick="exportAllData();hapticLight()"><span><i data-lucide="download"></i></span><div><strong>Скачать мои данные</strong><small>Профиль, дневник и настройки</small></div><b><i data-lucide="chevron-right"></i></b></button>
+    <button onclick="importBackupData();hapticLight()"><span><i data-lucide="upload"></i></span><div><strong>Восстановить резервную копию</strong><small id="profileBackupStatus">Импортировать сохранённый JSON-файл</small></div><b><i data-lucide="chevron-right"></i></b></button>
+    <button id="profileInstallRow" style="display:none" onclick="BabyPWA.install();hapticLight()"><span><i data-lucide="smartphone"></i></span><div><strong>Добавить на главный экран</strong><small>Открывать как обычное приложение</small></div><b><i data-lucide="chevron-right"></i></b></button>
+    <button onclick="openSupport();hapticLight()"><span><i data-lucide="message-circle"></i></span><div><strong>Поддержка</strong><small>Написать в Telegram</small></div><b><i data-lucide="chevron-right"></i></b></button>
+    <button onclick="window.open('privacy.html','_blank','noopener');hapticLight()"><span><i data-lucide="lock-keyhole"></i></span><div><strong>Конфиденциальность</strong><small>Как хранятся и используются данные</small></div><b><i data-lucide="chevron-right"></i></b></button>
+    <button onclick="window.open('terms.html','_blank','noopener');hapticLight()"><span><i data-lucide="file-text"></i></span><div><strong>Условия подписки</strong><small>Оплата, сроки и возврат</small></div><b><i data-lucide="chevron-right"></i></b></button>
+    <button class="danger-row" onclick="confirmDeleteLocalData();hapticLight()"><span><i data-lucide="trash-2"></i></span><div><strong>Удалить данные с устройства</strong><small>Очистить профиль и дневник</small></div><b><i data-lucide="chevron-right"></i></b></button>
   </div>
 </div>
 
@@ -716,16 +715,17 @@ window.BABY_TELEGRAM_SDK_READY = (function() {
 <script src="analytics-config.js?v=20260812-1"></script>
 <script src="analytics.js?v=20260821-1"></script>
 <script src="tma.js?v=20260812-1"></script>
-<script src="web-account.js?v=20260822-2"></script>
+<script src="account-storage.js?v=20260904-1"></script>
+<script src="web-account.js?v=20260904-1"></script>
 <script src="promo-copy.js?v=20260822-1"></script>
 <script src="partners.js?v=20260822-4"></script>
-<script src="cloud-sync.js?v=20260903-1"></script>
+<script src="cloud-sync.js?v=20260904-1"></script>
 <script src="pwa.js?v=20260821-2"></script>
-<script src="chat.js?v=20260812-1"></script>
+<script src="chat.js?v=20260904-1"></script>
 <script src="sleep-intelligence.js?v=20260812-1"></script>
 <script src="daily-coach.js?v=20260812-1"></script>
 <script src="baby-milestones.js?v=20260822-2"></script>
-<script src="tracker.js?v=20260812-1"></script>
+<script src="tracker.js?v=20260904-1"></script>
 <script src="articles.js?v=20260812-1"></script>
 <script src="subscription.js?v=20260822-2"></script>
 <script src="onboarding.js?v=20260903-1"></script>
@@ -877,6 +877,11 @@ function renderTodayPlan() {
   var kicker = document.getElementById('todayKicker');
   var confidence = document.getElementById('todayConfidence');
   if (!card || !list || !title || !sub || !btn) return;
+  var sleepIsRunning = Boolean(parseInt(localStorage.getItem('babymode_quick_sleep_start') || '0'));
+  var startAction = document.getElementById('homeSleepStart');
+  var finishAction = document.getElementById('homeSleepFinish');
+  if (startAction) startAction.disabled = sleepIsRunning;
+  if (finishAction) finishAction.disabled = !sleepIsRunning;
 
   if (!blocks.length) {
     card.style.display = 'none';
@@ -943,7 +948,7 @@ function renderTodayPlan() {
 
   list.innerHTML = important.map(function(b) {
     var icon = b.tag === 'sleep' ? 'moon' : b.tag === 'feed' ? 'milk' : b.tag === 'walk' ? 'trees' : 'clock-3';
-    return '<div class="today-step">'
+    return '<div class="today-step" data-kind="' + b.tag + '">'
       + '<div class="today-step-time">' + _escapeUiHtml(b.time) + '</div>'
       + '<div class="today-step-icon today-step-' + b.tag + '"><i data-lucide="' + icon + '"></i></div>'
       + '<div><strong>' + _escapeUiHtml(b.title) + '</strong><span>' + _escapeUiHtml(b.note) + '</span></div>'
@@ -1044,12 +1049,14 @@ function _applyBabyName(name) {
   var age = birthdate && window.BabyMilestones
     ? BabyMilestones.getBabyAgeMonths(birthdate, new Date())
     : parseInt(localStorage.getItem('babymode_last_age') || '0');
-  if (title) title.textContent = greeting;
+  if (title) title.textContent = 'Режим Малыша';
   if (el) {
-    el.textContent = (name || 'Режим Малыша') + (age ? ' · ' + age + ' мес.' : '');
+    el.textContent = name ? name + (age ? ' · ' + age + ' мес.' : '') : greeting;
     el.style.display = 'block';
   }
   if (fallback && !localStorage.getItem('babymode_photo')) fallback.textContent = name ? name.trim().charAt(0).toUpperCase() : 'РМ';
+  var profileAvatar = document.getElementById('profileAvatar');
+  if (profileAvatar) profileAvatar.textContent = name ? name.trim().charAt(0).toUpperCase() : 'РМ';
   var sc = document.getElementById('shareCardTitle');
   if (sc && name) sc.textContent = 'Режим дня — ' + name;
 }
@@ -1282,12 +1289,13 @@ function renderBabyEventCard() {
   var title = document.getElementById('babyEventTitle');
   var sub = document.getElementById('babyEventSub');
   var btn = document.getElementById('babyEventBtn');
-  if (icon) icon.textContent = event.type === 'birthday' ? '🎂' : (event.type === 'profile' ? '👶' : '📆');
+  if (icon) icon.innerHTML = '<i data-lucide="' + (event.type === 'birthday' ? 'cake' : event.type === 'profile' ? 'baby' : 'calendar-days') + '"></i>';
   if (title) title.textContent = event.title;
   if (sub) sub.textContent = event.subtitle;
   if (btn) btn.textContent = event.cta;
   card.dataset.eventType = event.type;
   card.style.display = 'grid';
+  refreshIcons();
 }
 
 function handleBabyEventAction() {
@@ -1298,6 +1306,10 @@ function handleBabyEventAction() {
       localStorage.removeItem('babymode_onboarded_v2');
       initOnboarding();
     }
+    return;
+  }
+  if (type === 'steady') {
+    goPage('tracker', document.getElementById('bn-tracker'));
     return;
   }
   goPage('articles', null);

@@ -540,13 +540,13 @@ function initChat() {
   const { age, name } = _getBabyContext();
   const safeName = escapeHtml(name);
   const babyInfo = name && age
-    ? `Мне известно, что ${safeName} ${age} мес. — отвечаю с учётом этого. `
+    ? `Возраст малыша: ${age} мес. — отвечаю с учётом этого. `
     : name
     ? `Мне известно, что вашего малыша зовут ${safeName}. `
     : age
     ? `Мне известно, что малышу ${age} мес. `
     : '';
-  addMsg(`<strong>Здравствуйте${name ? ', ' + safeName : ''}.</strong><br>Я помогу разобраться со сном и режимом малыша. ${babyInfo}Опишите ситуацию своими словами, а я предложу понятный следующий шаг и отмечу, когда лучше обратиться к врачу.`, 'bot');
+  addMsg(`<strong>Здравствуйте!</strong><br>Я помогу разобраться со сном и режимом малыша. ${babyInfo}Опишите ситуацию своими словами, а я предложу понятный следующий шаг и отмечу, когда лучше обратиться к врачу.`, 'bot');
   initQuickChatActions(document.getElementById('chatQuickActions'));
   renderChatContext();
 }
