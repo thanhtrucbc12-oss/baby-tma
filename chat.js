@@ -386,7 +386,8 @@ async function chatSend() {
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.answer) throw Object.assign(new Error(data.error || 'request_failed'), { code: data.error, limit: data.limit });
     typing?.remove();
-    addMsg(formatAiAnswer(data.answer, data.sources, data.request_id, q), 'bot');
+    const sourceNotice = data.mode === 'knowledge' ? '<small>Сейчас отвечаю по базе знаний.</small><br><br>' : '';
+    addMsg(sourceNotice + formatAiAnswer(data.answer, data.sources, data.request_id, q), 'bot');
     renderChatContext(data.remaining);
     if (window.BabyAnalytics) BabyAnalytics.track('ai_answer_received', { remaining: data.remaining, mode: data.mode || 'unknown' });
   } catch (error) {

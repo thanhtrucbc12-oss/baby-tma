@@ -1,8 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.112.3';
-import { refundedAccessEnd } from '../_shared/billing.mjs';
-import { clientAddress, json, sha256Hex } from '../_shared/http.ts';
+import { clientAddress, json, sha256Hex, readJsonBody } from '../_shared/http.ts';
 import { applyFailedYookassaPayment, applySucceededYookassaPayment, redactPayment, yookassaRequest } from '../_shared/yookassa.ts';
-import { reversePartnerCommission } from '../_shared/partners.mjs';
 
 Deno.serve(async req => {
   const headers = { 'Cache-Control': 'no-store' };
@@ -12,9 +10,9 @@ Deno.serve(async req => {
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   const encryptionSecret = Deno.env.get('BILLING_ENCRYPTION_KEY') || '';
   if (!supabaseUrl || !serviceRoleKey || encryptionSecret.length < 24) return json({ ok: false }, 503, headers);
-  const rawBody = await req.text();
-  if (new TextEncoder().encode(rawBody).byteLength > 100_000) return json({ ok: false }, 413, headers);
-  const body = parseBody(rawBody);
+  const parsed = await readJsonBody(req, 100_000);
+  if (!parsed.ok) return json({ ok: false }, parsed.error === 'payload_too_large' ? 413 : 400, headers);
+  const body = parsed.value;
   const eventType = String(body?.event || '');
   const incomingId = String(body?.object?.id || '');
   if (!['payment.succeeded', 'payment.canceled', 'refund.succeeded'].includes(eventType) || !/^[0-9a-f-]{20,80}$/i.test(incomingId)) {
@@ -48,20 +46,22 @@ Deno.serve(async req => {
     if (actualEvent !== eventType) throw new Error('webhook_status_mismatch');
     const eventKey = `${eventType}:${incomingId}`;
     const billingIdentityId = Number(payment?.metadata?.telegram_id || 0);
-    const { data: previous } = await supabase.from('billing_events').select('id,status').eq('provider', 'yookassa').eq('event_key', eventKey).maybeSingle();
+    const { data: previous, error: previousError } = await supabase.from('billing_events').select('id,status').eq('provider', 'yookassa').eq('event_key', eventKey).maybeSingle();
+    if (previousError) throw previousError;
     if (previous?.status === 'processed') return json({ ok: true }, 200, headers);
     const eventValues = {
       provider: 'yookassa', event_key: eventKey, event_type: eventType, status: 'processing',
       external_payment_id: incomingId, telegram_id: billingIdentityId > 0 ? billingIdentityId : null,
       payload: redactPayment(payment), error: null
     };
-    if (previous) await supabase.from('billing_events').update(eventValues).eq('id', previous.id);
-    else await supabase.from('billing_events').insert(eventValues);
+    const savedEvent = await supabase.from('billing_events').upsert(eventValues, { onConflict: 'provider,event_key' });
+    if (savedEvent.error) throw savedEvent.error;
 
     if (eventType === 'payment.succeeded') await applySucceededYookassaPayment({ supabase, payment, encryptionSecret });
     else await applyFailedYookassaPayment({ supabase, payment });
-    await supabase.from('billing_events').update({ status: 'processed', processed_at: new Date().toISOString() })
+    const completedEvent = await supabase.from('billing_events').update({ status: 'processed', processed_at: new Date().toISOString() })
       .eq('provider', 'yookassa').eq('event_key', eventKey);
+    if (completedEvent.error) throw completedEvent.error;
     return json({ ok: true }, 200, headers);
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 300) : 'unknown';
@@ -73,7 +73,7 @@ Deno.serve(async req => {
           ? { refund: verifiedPayload.refund?.id || null, payment: redactPayment(verifiedPayload.payment) }
           : redactPayment(verifiedPayload),
         error: message
-      }, { onConflict: 'provider,event_key' });
+      }, { onConflict: 'provider,event_key', ignoreDuplicates: true });
     }
     console.error('YooKassa webhook failed', message);
     return json({ ok: false }, 500, headers);
@@ -82,8 +82,9 @@ Deno.serve(async req => {
 
 async function processRefund(supabase: any, refund: any, payment: any) {
   const eventKey = `refund.succeeded:${refund.id}`;
-  const { data: previous } = await supabase.from('billing_events').select('status')
+  const { data: previous, error: previousError } = await supabase.from('billing_events').select('status')
     .eq('provider', 'yookassa').eq('event_key', eventKey).maybeSingle();
+  if (previousError) throw previousError;
   if (previous?.status === 'processed') return;
   const telegramId = Number(payment?.metadata?.telegram_id || 0);
   const refundMinor = Math.round(Number(refund?.amount?.value || 0) * 100);
@@ -101,52 +102,11 @@ async function processRefund(supabase: any, refund: any, payment: any) {
   if (localPayment.currency !== String(payment?.amount?.currency) || Number(localPayment.total_amount) !== paymentMinor) {
     throw new Error('local_refund_amount_mismatch');
   }
-  await supabase.from('billing_events').upsert({
-    provider: 'yookassa', event_key: eventKey, event_type: 'refund.succeeded', status: 'processing',
-    external_payment_id: String(payment.id || ''), telegram_id: telegramId > 0 ? telegramId : null,
-    payload: {
-      id: refund.id,
-      payment_id: refund.payment_id,
-      status: refund.status,
-      amount: refund.amount,
-      created_at: refund.created_at,
-      full_refund: isFullRefund
-    },
-    processed_at: null,
-    error: null
-  }, { onConflict: 'provider,event_key' });
-  await supabase.from('payments').update({
-    status: isFullRefund ? 'refunded' : 'partially_refunded',
-    updated_at: new Date().toISOString()
-  })
-    .eq('provider', 'yookassa').eq('external_payment_id', String(payment.id || ''));
-  await reversePartnerCommission({ supabase, paymentId: localPayment.id, fullRefund: isFullRefund });
-  if (telegramId && isFullRefund) {
-    const [{ data: agreement }, { data: subscription }] = await Promise.all([
-      supabase.from('billing_agreements').select('id,last_payment_id').eq('provider', 'yookassa').eq('telegram_id', telegramId).maybeSingle(),
-      supabase.from('subscriptions').select('source,current_period_end').eq('telegram_id', telegramId).maybeSingle()
-    ]);
-    const restoredEnd = refundedAccessEnd(
-      localPayment.access_period_start,
-      localPayment.access_period_end,
-      subscription?.current_period_end
-    );
-    if (agreement?.last_payment_id === String(payment.id || '') && subscription?.source === 'yookassa' && restoredEnd) {
-      const now = new Date();
-      const stillActive = new Date(restoredEnd).getTime() > now.getTime();
-      await supabase.from('billing_agreements').update({
-        status: 'cancelled', cancel_at_period_end: true, current_period_end: restoredEnd,
-        next_charge_at: restoredEnd, updated_at: now.toISOString()
-      })
-        .eq('id', agreement.id);
-      await supabase.from('subscriptions').update({
-        status: stillActive ? 'active' : 'revoked', cancel_at_period_end: true,
-        current_period_end: restoredEnd, next_billing_at: null, updated_at: now.toISOString()
-      }).eq('telegram_id', telegramId).eq('source', 'yookassa');
-    }
-  }
-  await supabase.from('billing_events').update({ status: 'processed', processed_at: new Date().toISOString() })
-    .eq('provider', 'yookassa').eq('event_key', eventKey);
+  const { error } = await supabase.rpc('finalize_yookassa_refund', {
+    p_id: localPayment.id, p_full: isFullRefund,
+    p_refund: { id: refund.id, payment_id: refund.payment_id, status: refund.status, amount: refund.amount }
+  });
+  if (error) throw error;
 }
 
 function parseBody(rawBody: string) {

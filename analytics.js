@@ -35,6 +35,8 @@ function createAnalytics(env = {}) {
   const locationRef = env.location || (typeof window !== 'undefined' ? window.location : null);
   const navigatorRef = env.navigator || (typeof navigator !== 'undefined' ? navigator : null);
   const sessionId = randomId();
+  let flushing = null;
+  let sequence = 0;
   const attribution = getAttribution({ storage, location: locationRef, telegram, documentRef: env.document });
 
   function getClientId() {
@@ -75,12 +77,24 @@ function createAnalytics(env = {}) {
     return entry;
   }
 
-  async function flush() {
-    if (!endpoint || !fetcher || !storage) return false;
-    const queue = readQueue();
-    if (!queue.length) return true;
+  function owner() {
+    return storage?.getItem('babymode_local_owner_v1') || String(telegram?.WebApp?.initDataUnsafe?.user?.id || 'guest');
+  }
 
+  function flush() {
+    if (flushing) return flushing;
+    flushing = sendBatches().finally(() => { flushing = null; });
+    return flushing;
+  }
+
+  async function sendBatches() {
+    if (!endpoint || !fetcher || !storage) return false;
+    const startOwner = owner();
     try {
+      for (let batch = 0; batch < 10; batch += 1) {
+      if (owner() !== startOwner) return false;
+      const queue = readQueue().slice(0, 20);
+      if (!queue.length) return true;
       const headers = typeof window !== 'undefined' && window.BabyAccount
         ? window.BabyAccount.authHeaders({ 'Content-Type': 'application/json' })
         : { 'Content-Type': 'application/json' };
@@ -91,8 +105,15 @@ function createAnalytics(env = {}) {
       });
 
       if (!response || !response.ok) return false;
-      writeQueue([]);
-      return true;
+      const result = await response.json();
+      if (owner() !== startOwner) return false;
+      if (!Array.isArray(result.accepted_ids)) return false;
+      const sent = new Set(queue.map(entry => entry.id));
+      const accepted = new Set(result.accepted_ids.filter(id => sent.has(id)));
+      if (!accepted.size) return false;
+      writeQueue(readQueue().filter(entry => !accepted.has(entry.id)));
+      }
+      return readQueue().length === 0;
     } catch (e) {
       return false;
     }
@@ -104,7 +125,8 @@ function createAnalytics(env = {}) {
       : null;
 
     return {
-      id: randomId(),
+      id: `${randomId()}_${++sequence}`,
+      _owner: owner(),
       event,
       payload,
       client_id: getClientId(),
@@ -116,8 +138,7 @@ function createAnalytics(env = {}) {
         language_code: tgUser.language_code || ''
       } : null,
       attribution,
-      baby: getBabyProfile(),
-      page: locationRef ? locationRef.href : '',
+      page: locationRef ? new URL(locationRef.href, 'https://example.test').pathname : '',
       user_agent: navigatorRef ? navigatorRef.userAgent || '' : '',
       language: navigatorRef ? navigatorRef.language || '' : '',
       created_at: new Date(now()).toISOString()
@@ -125,7 +146,11 @@ function createAnalytics(env = {}) {
   }
 
   function readQueue() {
-    try { return JSON.parse(storage.getItem(ANALYTICS_QUEUE_KEY) || '[]'); }
+    try {
+      const entries = JSON.parse(storage.getItem(ANALYTICS_QUEUE_KEY) || '[]');
+      // Unowned legacy events may contain another child's data. Never replay them.
+      return Array.isArray(entries) ? entries.filter(entry => entry && entry._owner === owner()) : [];
+    }
     catch (e) { return []; }
   }
 

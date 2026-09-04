@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.112.3';
 import { authenticateAppRequest } from '../_shared/auth.ts';
 import { clientAddress, readJsonBody } from '../_shared/http.ts';
+import { canSendReminder } from '../_shared/notifications.ts';
 
 const PROD_ORIGIN = 'https://arseneleshaevwork-dotcom.github.io';
 const ALLOWED_EVENTS = new Set([
@@ -59,6 +60,7 @@ Deno.serve(async (req) => {
     language_code: auth.user?.language_code || ''
   } : null;
   let inserted = 0;
+  const acceptedIds: string[] = [];
 
   for (const event of events) {
     const eventName = String(event?.event || '').slice(0, 64);
@@ -91,43 +93,10 @@ Deno.serve(async (req) => {
       if (!userError) userId = user?.id || null;
     }
 
-    if (verifiedTelegramUser && (safeBabyName || safeBabyBirthdate || safeBabyAge !== null) && userId) {
-      await supabase
-        .from('babies')
-        .upsert({
-          user_id: userId,
-          client_id: clientId,
-          name: safeBabyName || null,
-          birthdate: safeBabyBirthdate || null,
-          age_months: safeBabyAge,
-          updated_at: new Date().toISOString()
-        }, { onConflict: userId ? 'user_id' : 'client_id' });
-    }
+    // Analytics is append-only. Child profiles are written only by explicit saves.
 
-    if ((eventName === 'notifications_enabled' || eventName === 'notifications_disabled') && (userId || clientId || telegramUser?.id)) {
-      const enabled = eventName === 'notifications_enabled';
-      const setting = {
-        user_id: userId,
-        telegram_id: telegramUser?.id || null,
-        client_id: clientId,
-        chat_id: telegramUser?.id || null,
-        enabled,
-        timezone: String(payload?.timezone || 'Europe/Moscow').slice(0, 80),
-        birthday_reminders: Boolean(payload?.birthday_reminders ?? enabled),
-        age_milestones: Boolean(payload?.age_milestones ?? enabled),
-        schedule_reminders: Boolean(payload?.schedule_reminders ?? false),
-        updated_at: new Date().toISOString()
-      };
-      await supabase
-        .from('notification_settings')
-        .upsert(setting, { onConflict: userId ? 'user_id' : (setting.telegram_id ? 'telegram_id' : 'client_id') });
-      if (!enabled && telegramUser?.id) {
-        await supabase.from('schedule_reminders').update({ status: 'cancelled' })
-          .eq('telegram_id', telegramUser.id).in('status', ['pending', 'processing']);
-      }
-    }
-
-    if (eventName === 'schedule_reminders_planned' && telegramUser?.id && Array.isArray(payload?.reminders)) {
+    if (eventName === 'schedule_reminders_planned' && telegramUser?.id && Array.isArray(payload?.reminders)
+      && await canSendReminder(supabase, telegramUser.id)) {
       const now = Date.now();
       const reminders = payload.reminders.slice(0, 16).map((item: any) => {
         const scheduledAt = new Date(item?.at || '');
@@ -145,9 +114,10 @@ Deno.serve(async (req) => {
         };
       }).filter(Boolean);
       if (reminders.length) {
-        await supabase.from('schedule_reminders').update({ status: 'cancelled' })
-          .eq('telegram_id', telegramUser.id).eq('status', 'pending').gte('scheduled_at', new Date(now).toISOString());
-        await supabase.from('schedule_reminders').upsert(reminders, { onConflict: 'telegram_id,reminder_key,scheduled_at' });
+        const saved = await supabase.rpc('replace_schedule_reminders', {
+          p_telegram_id: telegramUser.id, p_at: validRecentDate(event.created_at), p_items: reminders
+        });
+        if (saved.error) throw saved.error;
       }
     }
 
@@ -157,9 +127,9 @@ Deno.serve(async (req) => {
       client_id: clientId,
       session_id: String(event.session_id || '').slice(0, 100) || null,
       telegram_id: telegramUser?.id || null,
-      baby_name: verifiedTelegramUser ? safeBabyName || null : null,
-      baby_birthdate: verifiedTelegramUser ? safeBabyBirthdate || null : null,
-      baby_age_months: verifiedTelegramUser ? safeBabyAge : null,
+      baby_name: null,
+      baby_birthdate: null,
+      baby_age_months: null,
       attribution: sanitizePayload(event.attribution),
       payload,
       page: String(event.page || '').slice(0, 500) || null,
@@ -168,10 +138,13 @@ Deno.serve(async (req) => {
       created_at: validRecentDate(event.created_at) || new Date().toISOString()
     });
 
-    if (!eventError) inserted++;
+    if (!eventError) {
+      inserted++;
+      if (typeof event.id === 'string') acceptedIds.push(event.id);
+    }
   }
 
-  return json({ ok: true, inserted }, 200, corsHeaders);
+  return json({ ok: true, inserted, accepted_ids: acceptedIds }, 200, corsHeaders);
 });
 
 function isAllowedOrigin(origin: string) {

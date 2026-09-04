@@ -7,7 +7,7 @@
     'baby_name', 'baby_birthdate', 'photo', 'last_age', 'wake_time', 'feed_type',
     'logs', 'diary_tombstones_v1', 'settings_updated_at_v1', 'profile_updated_at_v1',
     'today_schedule_v1', 'quick_sleep_start', 'last_diary_mutation_v1', 'tomorrow_plan',
-    'notif_enabled', 'today_reminders', 'ai_consent_v2', 'premium', 'premium_until',
+    'notif_enabled', 'notification_updated_at_v1', 'today_reminders', 'ai_consent_v2', 'premium', 'premium_until',
     'trial_start', 'personal_plan_ready_v1', 'last_backup_at', 'last_backup_restore',
     'onboarded_v2', 'launched', 'gen_count'
   ].map(key => 'babymode_' + key);
@@ -34,6 +34,7 @@
       }
     }
     localStorage.setItem(OWNER, owner);
+    localStorage.removeItem('babymode_analytics_queue');
     return Boolean(previous);
   }
 

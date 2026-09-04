@@ -61,6 +61,11 @@
     try { todaySchedule = JSON.parse(localStorage.getItem('babymode_today_schedule_v1') || 'null'); } catch (_) {}
     return {
       action: 'push',
+      notification_preference: {
+        enabled: ['tg', 'pending'].includes(localStorage.getItem('babymode_notif_enabled')),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+      },
+      notification_updated_at: localStorage.getItem('babymode_notification_updated_at_v1'),
       profile: {
         name: localStorage.getItem('babymode_baby_name') || '',
         birthdate: localStorage.getItem('babymode_baby_birthdate') || '',
@@ -84,6 +89,13 @@
   function applySnapshot(data) {
     applyProfile(data.profile, data.profile_updated_at);
     applySettings(data.settings, data.settings_updated_at);
+    const preference = data.notification_preference;
+    const localPreferenceAt = Date.parse(localStorage.getItem('babymode_notification_updated_at_v1')) || 0;
+    if (preference && Date.parse(preference.updated_at) >= localPreferenceAt) {
+      localStorage.setItem('babymode_notif_enabled', preference.enabled ? 'tg' : 'no');
+      localStorage.setItem('babymode_notification_updated_at_v1', preference.updated_at);
+      if (!preference.enabled && typeof global.clearReminderTimers === 'function') global.clearReminderTimers();
+    }
     const local = readDiary();
     const remote = Array.isArray(data.diary) ? data.diary : [];
     const deleted = mergeTombstones(readTombstones(), data.deleted_diary_days || []);
@@ -91,10 +103,10 @@
     const merged = new Map();
     [...local, ...remote].forEach(log => {
       if (!log?.date) return;
-      const updated = Date.parse(log._updatedAt) || 0;
-      if (updated <= (tombstoneMap.get(log.date) || 0)) return;
+      const updated = Date.parse(log._updatedAt) || Date.parse(BASELINE_TIMESTAMP);
+      if (tombstoneMap.has(log.date) && updated <= tombstoneMap.get(log.date)) return;
       const current = merged.get(log.date);
-      if (!current || updated >= (Date.parse(current._updatedAt) || 0)) merged.set(log.date, log);
+      if (!current || updated >= (Date.parse(current._updatedAt) || 0)) merged.set(log.date, { ...log, _updatedAt: new Date(updated).toISOString() });
     });
     localStorage.setItem('babymode_logs', JSON.stringify([...merged.values()].sort((a, b) => String(a.date).localeCompare(String(b.date)))));
     localStorage.setItem(TOMBSTONES_KEY, JSON.stringify(deleted.slice(-400)));
@@ -135,7 +147,7 @@
     if (settings.wake_time) localStorage.setItem('babymode_wake_time', settings.wake_time);
     if (settings.feed_type) localStorage.setItem('babymode_feed_type', settings.feed_type);
     if (!localStorage.getItem('babymode_baby_birthdate') && settings.last_age !== null && settings.last_age !== undefined) localStorage.setItem('babymode_last_age', String(settings.last_age));
-    if (settings.notifications !== undefined) {
+    if (!localStorage.getItem('babymode_notification_updated_at_v1') && settings.notifications !== undefined) {
       const enabled = [true, 'true', '1', 'tg', 'pending'].includes(settings.notifications);
       localStorage.setItem('babymode_notif_enabled', enabled ? 'tg' : 'no');
     }

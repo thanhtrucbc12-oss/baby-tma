@@ -106,7 +106,9 @@ const fs = require('node:fs');
     // Close first-run onboarding to reach the profile after identity changed.
     await page.evaluate(() => { localStorage.setItem('babymode_onboarded_v2', '1'); document.getElementById('onboarding')?.remove(); });
     await page.locator('#bn-profile').click();
+    const logoutNavigation = page.waitForNavigation({ waitUntil: 'networkidle' });
     await page.locator('#profileAccountRow').click();
+    await logoutNavigation;
     await page.waitForFunction(() => localStorage.getItem('babymode_local_owner_v1') === 'guest');
     assert.equal(await page.evaluate(() => localStorage.getItem('babymode_web_session_v1')), null);
     const admin = await context.newPage();

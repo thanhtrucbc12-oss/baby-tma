@@ -1,7 +1,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.112.3';
 import { authenticateAppRequest } from '../_shared/auth.ts';
-import { corsHeaders, isAllowedOrigin, json } from '../_shared/http.ts';
+import { corsHeaders, isAllowedOrigin, json, readJsonBody } from '../_shared/http.ts';
 import { sanitizeDeletedDiaryDay, sanitizeDiaryEntry, sanitizeSyncProfile, sanitizeSyncSettings } from './policy.mjs';
+import { saveNotificationPreference } from '../_shared/notifications.ts';
 
 Deno.serve(async req => {
   const headers = corsHeaders(req);
@@ -16,14 +17,17 @@ Deno.serve(async req => {
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   if (!botToken || !supabaseUrl || !serviceRoleKey) return json({ ok: false, error: 'server_not_configured' }, 503, headers);
   const supabase = createClient(supabaseUrl, serviceRoleKey);
-  const rawBody = await req.text();
-  if (new TextEncoder().encode(rawBody).byteLength > 1_000_000) return json({ ok: false, error: 'payload_too_large' }, 413, headers);
-  const body = parseBody(rawBody);
+  const parsed = await readJsonBody(req, 1_000_000);
+  if (!parsed.ok) return json({ ok: false, error: parsed.error }, parsed.error === 'payload_too_large' ? 413 : 400, headers);
+  const body = parsed.value;
   const auth = await authenticateAppRequest({ req, body, supabase, botToken });
   if (!auth.ok) return json({ ok: false, error: auth.error || 'auth_failed' }, 401, headers);
 
   if (String(body?.action || 'pull') === 'push') {
     const now = new Date();
+    if (body?.notification_preference && body?.notification_updated_at) {
+      await saveNotificationPreference(supabase, auth, body.notification_preference, safeTimestamp(body.notification_updated_at, now));
+    }
     const profile = sanitizeSyncProfile(body?.profile, now);
     const profileUpdatedAt = safeTimestamp(body?.profile_updated_at, now);
     const { data: storedProfile, error: profileReadError } = await supabase.from('babies')
@@ -100,19 +104,22 @@ async function applyDiaryChanges(supabase: any, auth: any, entries: any[], delet
 }
 
 async function loadSnapshot(supabase: any, userId: string) {
-  const [babyResult, settingsResult, diaryResult] = await Promise.all([
+  const [babyResult, settingsResult, diaryResult, notificationResult] = await Promise.all([
     supabase.from('babies').select('name,birthdate,age_months,updated_at').eq('user_id', userId).maybeSingle(),
     supabase.from('user_app_settings').select('settings,client_updated_at').eq('user_id', userId).maybeSingle(),
     supabase.from('diary_days').select('entry_date,data,client_updated_at,deleted_at')
-      .eq('user_id', userId).order('entry_date', { ascending: false }).limit(400)
+      .eq('user_id', userId).order('entry_date', { ascending: false }).limit(400),
+    supabase.from('notification_settings').select('enabled,timezone,updated_at').eq('user_id', userId).maybeSingle()
   ]);
   if (babyResult.error) throw babyResult.error;
   if (settingsResult.error) throw settingsResult.error;
   if (diaryResult.error) throw diaryResult.error;
+  if (notificationResult.error) throw notificationResult.error;
   const baby = babyResult.data;
   const settings = settingsResult.data;
   const diary = [...(diaryResult.data || [])].sort((left: any, right: any) => String(left.entry_date).localeCompare(String(right.entry_date)));
   return {
+    notification_preference: notificationResult.data || null,
     profile: baby || null,
     profile_updated_at: baby?.updated_at || null,
     settings: settings?.settings || {},

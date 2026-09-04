@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.112.3';
 import { readJsonBody } from '../_shared/http.ts';
 import { isComfortableDeliveryTime, localDateTime, reminderForBaby } from './policy.mjs';
+import { canSendReminder } from '../_shared/notifications.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': 'https://arseneleshaevwork-dotcom.github.io',
@@ -95,6 +96,7 @@ Deno.serve(async (req) => {
         p_event_date: job.event_date
       });
       if (claimError || !deliveryId) continue;
+      if (!await canSendReminder(supabase, job.telegram_id, job.reminder_type)) continue;
       const result = await sendTelegram(botToken, job.chat_id, job.text);
       outcome = { ok: result.ok, dry_run: false, error: result.error };
       await supabase.from('notification_deliveries').update({
@@ -161,6 +163,10 @@ async function processScheduledReminders({ supabase, botToken, dryRun }: any) {
 
   const results: any[] = [];
   for (const row of rows || []) {
+    if (!await canSendReminder(supabase, row.telegram_id)) {
+      if (!dryRun) await supabase.from('schedule_reminders').update({ status: 'cancelled' }).eq('id', row.id).eq('status', 'processing');
+      continue;
+    }
     if (dryRun) {
       results.push({ id: row.id, chat_id: row.chat_id, reminder_type: row.reminder_type, dry_run: true });
       continue;

@@ -40,7 +40,7 @@ test('normalizes baby profile for storage and events', () => {
   });
 });
 
-test('tracks events with client, telegram and baby context', () => {
+test('tracks events without private child context', () => {
   const storage = makeStorage({
     babymode_baby_name: 'Миша',
     babymode_baby_birthdate: '2025-12-01',
@@ -62,7 +62,7 @@ test('tracks events with client, telegram and baby context', () => {
   assert.strictEqual(queue[0].event, 'app_open');
   assert.strictEqual(queue[0].client_id, 'fixed-id');
   assert.strictEqual(queue[0].telegram_user.id, 42);
-  assert.strictEqual(queue[0].baby.name, 'Миша');
+  assert.strictEqual(queue[0].baby, undefined);
   assert.deepStrictEqual(queue[0].payload, { source: 'test' });
 });
 
@@ -126,7 +126,7 @@ test('saves baby profile and tracks profile_saved', () => {
 
   const queue = JSON.parse(storage.getItem('babymode_analytics_queue'));
   assert.strictEqual(queue[0].event, 'profile_saved');
-  assert.strictEqual(queue[0].baby.birthdate, '2026-01-10');
+  assert.strictEqual(queue[0].baby, undefined);
 });
 
 test('flushes queued events to configured endpoint', async () => {
@@ -139,7 +139,7 @@ test('flushes queued events to configured endpoint', async () => {
     randomId: () => 'fixed-id',
     fetch: async (url, options) => {
       requests.push({ url, options });
-      return { ok: true };
+      return { ok: true, json: async () => ({ accepted_ids: JSON.parse(options.body).events.map(event => event.id) }) };
     }
   });
 

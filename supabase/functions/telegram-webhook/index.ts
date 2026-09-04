@@ -2,6 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.112.3';
 import { buildBotReply } from './bot-flow.mjs';
 import { readJsonBody } from '../_shared/http.ts';
 import { claimPartnerReferral, normalizePartnerCode } from '../_shared/partners.mjs';
+import { saveNotificationPreference } from '../_shared/notifications.ts';
 
 const miniAppUrl = Deno.env.get('MINI_APP_URL') || 'https://arseneleshaevwork-dotcom.github.io/baby-tma/';
 
@@ -28,6 +29,7 @@ Deno.serve(async (req) => {
 
   const callback = update?.callback_query;
   const message = update?.message || callback?.message;
+  if (message?.chat?.type && message.chat.type !== 'private') return json({ ok: true, skipped: true });
   const from = callback?.from || message?.from;
   const chatId = message?.chat?.id;
   const text = String(callback?.data || message?.text || '');
@@ -142,35 +144,20 @@ Deno.serve(async (req) => {
 
     if ((botReply?.action === 'enable_reminders' || botReply?.action === 'disable_reminders') && user?.id) {
       const enabled = botReply.action === 'enable_reminders';
-      await supabase.from('notification_settings').upsert({
-        user_id: user.id,
-        telegram_id: from.id,
-        chat_id: chatId,
-        enabled,
-        timezone: 'Europe/Moscow',
-        birthday_reminders: enabled,
-        age_milestones: enabled,
-        schedule_reminders: false,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'telegram_id' });
+      await saveNotificationPreference(supabase, { user, telegramId: from.id }, { enabled }, new Date().toISOString());
     } else if (user?.id) {
       const { data: setting } = await supabase
         .from('notification_settings')
-        .select('enabled,birthday_reminders,age_milestones,schedule_reminders')
+        .select('enabled')
         .eq('telegram_id', from.id)
         .maybeSingle();
 
-      await supabase.from('notification_settings').upsert({
+      if (!setting) await supabase.from('notification_settings').upsert({
         user_id: user.id,
         telegram_id: from.id,
         chat_id: chatId,
-        enabled: Boolean(setting?.enabled),
-        timezone: 'Europe/Moscow',
-        birthday_reminders: Boolean(setting?.birthday_reminders ?? true),
-        age_milestones: Boolean(setting?.age_milestones ?? true),
-        schedule_reminders: Boolean(setting?.schedule_reminders ?? false),
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'telegram_id' });
+        enabled: false
+      }, { onConflict: 'telegram_id', ignoreDuplicates: true });
     }
 
     await supabase.from('events').insert({

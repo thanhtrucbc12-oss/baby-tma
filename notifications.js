@@ -230,6 +230,7 @@ function _escapeHtml(value) {
 function setNotificationPreference(value) {
   _refreshTelegramUserId();
   localStorage.setItem(NOTIF_KEY, value);
+  localStorage.setItem('babymode_notification_updated_at_v1', new Date().toISOString());
   if (window.BabyCloudSync) BabyCloudSync.markSettingsChanged();
   if (!window.BabyAnalytics) return;
 
@@ -243,6 +244,14 @@ function setNotificationPreference(value) {
     schedule_reminders: enabled
   });
   BabyAnalytics.flush();
+}
+
+function clearReminderTimers() {
+  _notifTimers.forEach(timer => clearTimeout(timer));
+  _notifTimers = [];
+  _storeReminderPlan([]);
+  _renderReminderBadge(0);
+  _renderReminderList([]);
 }
 
 function _refreshTelegramUserId() {
@@ -260,6 +269,8 @@ function _refreshTelegramUserId() {
 function _syncReminderPlanToTelegram(plan) {
   _refreshTelegramUserId();
   if (!isNotificationsEnabled() || !_tgUserId || !window.BabyAnalytics || !Array.isArray(plan) || !plan.length) return false;
+  const submit = () => {
+  if (!isNotificationsEnabled()) return;
   BabyAnalytics.track('schedule_reminders_planned', {
     reminders: plan.map(item => ({
       id: item.id,
@@ -271,6 +282,10 @@ function _syncReminderPlanToTelegram(plan) {
     }))
   });
   BabyAnalytics.flush();
+  };
+  if (window.BabyCloudSync) {
+    window.BabyCloudSync.syncNow().then(ok => { if (ok) submit(); });
+  } else submit();
   return true;
 }
 

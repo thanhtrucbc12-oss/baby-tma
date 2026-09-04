@@ -1,5 +1,4 @@
-import { addBillingMonths, getBillingPlan, rubles, sealBillingSecret } from './billing.mjs';
-import { accruePartnerCommission } from './partners.mjs';
+import { getBillingPlan, rubles, sealBillingSecret } from './billing.mjs';
 
 export function getYookassaCredentials() {
   const shopId = Deno.env.get('YOOKASSA_SHOP_ID')?.trim() || undefined;
@@ -103,101 +102,17 @@ export async function applySucceededYookassaPayment({ supabase, payment, encrypt
   if (String(payment?.amount?.currency) !== 'RUB' || Math.round(Number(payment?.amount?.value) * 100) !== plan.amountMinor) {
     throw new Error('provider_amount_mismatch');
   }
-  const now = new Date();
-  const [{ data: current }, { data: existingAgreement }] = await Promise.all([
-    supabase.from('subscriptions').select('current_period_end').eq('telegram_id', telegramId).maybeSingle(),
-    supabase.from('billing_agreements').select('cancel_at_period_end,status,current_period_end,last_payment_id')
-      .eq('provider', 'yookassa').eq('telegram_id', telegramId).maybeSingle()
-  ]);
   const paymentMethod = payment?.payment_method;
   const recurringEnabled = Boolean(paymentMethod?.saved === true && paymentMethod?.id);
   const ciphertext = await sealBillingSecret(recurringEnabled ? String(paymentMethod.id) : 'one_time', encryptionSecret);
-  const keepCancelled = !recurringEnabled
-    || Boolean(existingAgreement?.cancel_at_period_end || existingAgreement?.status === 'cancelled');
-  const paymentMethodType = recurringEnabled
-    ? String(paymentMethod.type || '').slice(0, 40) || null
-    : 'one_time';
-  let currentPeriodStart = localPayment.access_period_start;
-  let currentPeriodEnd = localPayment.access_period_end;
-  let newlyPaid = false;
-
-  if (localPayment.status !== 'paid') {
-    const currentEnd = new Date(current?.current_period_end || 0);
-    const extensionStart = !Number.isNaN(currentEnd.getTime()) && currentEnd > now ? currentEnd : now;
-    currentPeriodStart = extensionStart.toISOString();
-    currentPeriodEnd = addBillingMonths(extensionStart, plan.months).toISOString();
-    const paymentUpdate = await supabase.from('payments').update({
-      status: 'paid',
-      external_payment_id: String(payment.id),
-      provider_payment_charge_id: String(payment.id),
-      raw_payload: redactPayment(payment),
-      paid_at: now.toISOString(),
-      access_period_start: currentPeriodStart,
-      access_period_end: currentPeriodEnd,
-      updated_at: now.toISOString(),
-      error_code: null
-    }).eq('id', internalPaymentId).neq('status', 'paid')
-      .select('access_period_start,access_period_end').maybeSingle();
-    newlyPaid = Boolean(paymentUpdate.data);
-    if (!newlyPaid) {
-      const { data: latest } = await supabase.from('payments')
-        .select('access_period_start,access_period_end').eq('id', internalPaymentId).maybeSingle();
-      currentPeriodStart = latest?.access_period_start;
-      currentPeriodEnd = latest?.access_period_end;
-    }
-  }
-  if (!currentPeriodStart || !currentPeriodEnd) throw new Error('payment_period_missing');
-
-  const existingAgreementEnd = new Date(existingAgreement?.current_period_end || 0).getTime();
-  const paymentPeriodEnd = new Date(currentPeriodEnd).getTime();
-  if (!newlyPaid && existingAgreement?.last_payment_id !== String(payment.id)
-    && Number.isFinite(existingAgreementEnd) && existingAgreementEnd >= paymentPeriodEnd) {
-    return { alreadyProcessed: true, currentPeriodEnd: current?.current_period_end || currentPeriodEnd };
-  }
-
-  const { error: agreementError } = await supabase.from('billing_agreements').upsert({
-    user_id: localPayment.user_id,
-    telegram_id: telegramId,
-    provider: 'yookassa',
-    plan: plan.key,
-    status: keepCancelled ? 'cancelled' : 'active',
-    amount_minor: plan.amountMinor,
-    currency: 'RUB',
-    payment_method_ciphertext: ciphertext,
-    payment_method_type: paymentMethodType,
-    next_charge_at: currentPeriodEnd,
-    current_period_end: currentPeriodEnd,
-    cancel_at_period_end: keepCancelled,
-    retry_count: 0,
-    last_payment_id: String(payment.id),
-    last_error: null,
-    updated_at: now.toISOString()
-  }, { onConflict: 'provider,telegram_id' });
-  if (agreementError) throw agreementError;
-
-  const { error: subscriptionError } = await supabase.from('subscriptions').upsert({
-    user_id: localPayment.user_id,
-    telegram_id: telegramId,
-    plan: plan.key,
-    status: 'active',
-    source: 'yookassa',
-    current_period_start: currentPeriodStart,
-    current_period_end: currentPeriodEnd,
-    cancel_at_period_end: keepCancelled,
-    next_billing_at: keepCancelled ? null : currentPeriodEnd,
-    last_payment_at: now.toISOString(),
-    payment_method_type: paymentMethodType,
-    last_error: null,
-    updated_at: now.toISOString()
-  }, { onConflict: 'telegram_id' });
-  if (subscriptionError) throw subscriptionError;
-
-  if (newlyPaid) {
-    await accruePartnerCommission({
-      supabase,
-      payment: { ...localPayment, status: 'paid' },
-      paidAt: now
-    });
+  const verified = redactPayment(payment);
+  if (verified.payment_method) verified.payment_method.saved = recurringEnabled;
+  const { data: result, error } = await supabase.rpc('finalize_yookassa_payment', {
+    p_id: internalPaymentId, p_payment: verified, p_ciphertext: ciphertext
+  });
+  if (error) throw error;
+  if (!result || result.ignored) return { alreadyProcessed: true };
+  if (result.newly_paid) {
     await supabase.from('events').insert({
       event_name: 'payment_success',
       user_id: localPayment.user_id,
@@ -205,7 +120,7 @@ export async function applySucceededYookassaPayment({ supabase, payment, encrypt
       payload: { provider: 'yookassa', plan: plan.key, amount_minor: plan.amountMinor, recurring: recurringEnabled }
     });
   }
-  return { alreadyProcessed: !newlyPaid, currentPeriodEnd, recurring: recurringEnabled };
+  return { alreadyProcessed: !result.newly_paid, currentPeriodEnd: result.current_period_end, recurring: recurringEnabled };
 }
 
 export async function applyFailedYookassaPayment({ supabase, payment }: { supabase: any; payment: any }) {
