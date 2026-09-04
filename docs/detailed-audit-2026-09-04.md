@@ -124,7 +124,7 @@ GitHub Pages возвращает HSTS, но в проверенном отве�
 
 ```sh
 node --test --test-reporter=dot tests/*.test.js tests/*.test.mjs
-node tests/audit-reproductions.mjs
+node --test tests/audit-regression.test.mjs tests/integrity-database.test.mjs
 node tests/production-smoke.cjs
 node tests/browser-smoke.cjs
 ```

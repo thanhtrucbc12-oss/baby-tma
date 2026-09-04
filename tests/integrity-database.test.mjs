@@ -76,11 +76,20 @@ test('PostgreSQL integrity: stale writes, atomic billing, retries, refunds, cons
     assert.equal((await db.query('select * from claim_due_schedule_reminders()')).rows.length, 0, 'no active premium');
     await db.exec("update subscriptions set status='active',current_period_end=now()+interval '1 day'");
     assert.equal((await db.query('select * from claim_due_schedule_reminders()')).rows.length, 1);
+    const planAt = new Date().toISOString();
+    const plan = [{ reminder_key:'plan-test', reminder_type:'sleep', title:'test', message:'test', scheduled_at:new Date(Date.now()+3600000).toISOString() }];
+    const replacePlan = (at, items=plan) => db.query('select replace_schedule_reminders(123,$1,$2) as accepted',[at,JSON.stringify(items)]);
+    assert.equal((await replacePlan(planAt)).rows[0].accepted, true);
+    assert.equal((await replacePlan(planAt,[])).rows[0].accepted, false, 'duplicate plan cannot clear queue');
+    await db.exec("update schedule_reminders set status='sent' where reminder_key='plan-test'");
+    assert.equal((await replacePlan(new Date(Date.parse(planAt)+1000).toISOString())).rows[0].accepted, true);
+    assert.equal((await db.query("select status from schedule_reminders where reminder_key='plan-test'")).rows[0].status, 'sent', 'new plan cannot requeue delivered reminder');
     await db.exec("update notification_settings set enabled=false,updated_at='2026-09-04T11:00Z'");
-    assert.equal((await db.query('select status from schedule_reminders')).rows[0].status, 'cancelled');
+    assert.equal((await db.query("select status from schedule_reminders where reminder_key='test'")).rows[0].status, 'cancelled');
+    assert.equal((await replacePlan(new Date(Date.parse(planAt)+2000).toISOString())).rows[0].accepted, false, 'disabled consent rejects new plan');
     await db.exec("update notification_settings set enabled=true,updated_at='2026-09-04T09:00Z'");
     assert.equal((await db.query('select enabled from notification_settings')).rows[0].enabled, false);
-    for (const signature of ['finalize_yookassa_payment(uuid,jsonb,text)','finalize_yookassa_refund(uuid,jsonb,boolean)','accrue_partner_payment(uuid)','claim_due_schedule_reminders(integer)']) {
+    for (const signature of ['finalize_yookassa_payment(uuid,jsonb,text)','finalize_yookassa_refund(uuid,jsonb,boolean)','accrue_partner_payment(uuid)','claim_due_schedule_reminders(integer)','replace_schedule_reminders(bigint,timestamptz,jsonb)']) {
       assert.equal((await db.query("select has_function_privilege('anon',$1,'EXECUTE') as allowed",[signature])).rows[0].allowed, false);
       assert.equal((await db.query("select has_function_privilege('authenticated',$1,'EXECUTE') as allowed",[signature])).rows[0].allowed, false);
     }
