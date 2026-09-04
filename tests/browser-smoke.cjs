@@ -2,6 +2,7 @@
 const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const axeSource = fs.readFileSync(require.resolve('axe-core/axe.min.js'), 'utf8');
 
 (async () => {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
@@ -24,8 +25,19 @@ const fs = require('node:fs');
     });
     const page = await context.newPage();
     const errors = [];
+    const contrastFailures = new Map();
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(process.env.QA_URL || 'http://127.0.0.1:8765/', { waitUntil: 'networkidle' });
+    const auditContrast = async label => {
+      if (!await page.evaluate(() => Boolean(window.axe))) await page.evaluate(axeSource);
+      const results = await page.evaluate(async () => axe.run(document, { runOnly: { type: 'rule', values: ['color-contrast'] } }));
+      for (const violation of results.violations) {
+        for (const node of violation.nodes) {
+          const key = `${node.target.join(' ')}: ${node.failureSummary || violation.help}`;
+          contrastFailures.set(key, label);
+        }
+      }
+    };
     await page.locator('#btn-generate').click();
     await page.waitForFunction(() => document.querySelector('#btn-generate').dataset.action !== undefined);
     await page.locator('#homeSleepStart').click();
@@ -33,6 +45,7 @@ const fs = require('node:fs');
     assert.equal(await page.locator('#homeSleepFinish').isEnabled(), true);
     await page.locator('#homeSleepFinish').click();
     assert.equal(await page.locator('#homeSleepFinish').isDisabled(), true);
+    assert.equal(await page.locator('#homeSleepFinish').evaluate(el => getComputedStyle(el).opacity), '1', 'disabled action text must not fade with its container');
     assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('babymode_logs'))[0].sleepEvents.length), 1);
     assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('babymode_logs'))[0].nightWakings || 0), 0);
     assert.equal(await page.evaluate(() => {
@@ -47,6 +60,7 @@ const fs = require('node:fs');
       for (const name of ['home', 'tracker', 'chat', 'profile']) {
         await page.locator('#bn-' + name).click();
         await page.waitForFunction(id => document.body.dataset.page === id, name);
+        await auditContrast(`${name} ${viewport.width}px`);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${name}: horizontal overflow at ${viewport.width}`);
         if (name === 'profile') {
           const input = await page.locator('#profileBabyName').boundingBox();
@@ -61,6 +75,12 @@ const fs = require('node:fs');
       }
     }
     await page.setViewportSize({ width: 375, height: 812 });
+    await page.evaluate(() => goPage('schedule', null));
+    await auditContrast('schedule');
+    await page.locator('#bn-tracker').click();
+    await page.locator('.diary-manual-card > summary').click();
+    await auditContrast('diary form');
+    await page.locator('#bn-profile').click();
     await page.evaluate(() => { document.documentElement.style.fontSize = '24px'; });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'enlarged text must not cause horizontal overflow');
     await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
@@ -70,21 +90,52 @@ const fs = require('node:fs');
     await page.getByRole('button', { name: /^Premium/ }).click();
     await page.waitForSelector('#page-premium.active');
     assert.match(await page.locator('#page-premium').innerText(), /349/);
+    await auditContrast('premium');
+    await page.locator('.plan-card.recommended').click();
+    await auditContrast('premium quarter selected');
     await page.screenshot({ path: `${output}/premium.png` });
     await page.locator('#bn-profile').click();
     await page.getByRole('button', { name: /База знаний Сон/ }).click();
     await page.waitForSelector('#page-articles.active');
     assert.ok((await page.locator('#page-articles').innerText()).length > 100);
+    await auditContrast('articles');
+    await page.locator('#rfHeader').click();
+    await auditContrast('expanded safety notice');
     await page.locator('#bn-profile').click();
     await page.getByRole('button', { name: /Ритуал сна Таймер/ }).click();
     await page.waitForSelector('#page-ritual.active');
     assert.ok((await page.locator('#page-ritual').innerText()).length > 100);
+    await auditContrast('ritual');
+    await page.locator('#ritualStartBtn').click();
+    await page.locator('#rs-1').click();
+    await auditContrast('ritual active and completed steps');
+    await page.screenshot({ path: `${output}/ritual.png` });
+    await page.locator('#ritualStartBtn').click();
     await page.locator('#bn-profile').click();
     await page.getByRole('button', { name: /Партнёрская программа/ }).click();
     await page.waitForSelector('#page-partner.active');
     assert.match(await page.locator('#page-partner').innerText(), /30%/);
     assert.doesNotMatch(await page.locator('#page-partner').innerText(), /62 дня|двух оплат|2 оплат/);
+    await auditContrast('partner');
     await page.screenshot({ path: `${output}/partner.png` });
+    await page.evaluate(() => BabyAccount.requestLogin('profile'));
+    await page.waitForSelector('#webAuthGate:not([hidden])');
+    await auditContrast('Telegram login');
+    await page.evaluate(() => BabyAccount.closeLoginPrompt());
+    await page.evaluate(() => { requestAiConsent(); });
+    await auditContrast('AI consent');
+    await page.evaluate(() => closeAiConsent());
+    await page.evaluate(() => openShareCard());
+    await auditContrast('share card');
+    await page.evaluate(() => closeShareModal());
+    await page.evaluate(() => { localStorage.removeItem('babymode_onboarded_v2'); initOnboarding(); });
+    await page.waitForSelector('#onboarding.ob-visible');
+    await auditContrast('onboarding welcome');
+    await page.locator('#obNextBtn').click();
+    await auditContrast('onboarding profile');
+    await page.locator('#obNextBtn').click();
+    await auditContrast('onboarding reminders');
+    await page.locator('.ob-skip').click();
     // Exercise actual session startup + logout + a second user, without Telegram or production.
     await context.route('**/web-auth', route => {
       const action = route.request().postDataJSON()?.action;
@@ -116,7 +167,8 @@ const fs = require('node:fs');
     assert.equal(await admin.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'admin login fits mobile');
     await admin.close();
     assert.deepEqual(errors, [], 'no uncaught browser errors');
-    console.log('PASS: sleep start/finish/persistence, profile save, 4 screens x 4 viewports, payment/partner/knowledge/ritual views, account switch/logout, no JS errors');
+    assert.deepEqual([...contrastFailures.entries()], [], 'WCAG text contrast failures');
+    console.log('PASS: sleep start/finish/persistence, profile save, 4 screens x 4 viewports, payment/partner/knowledge/ritual views, account switch/logout, WCAG text contrast including forms and dialogs, no JS errors');
   } finally {
     await browser.close();
   }

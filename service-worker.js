@@ -1,4 +1,4 @@
-const CACHE_NAME = 'baby-mode-v20260904-3';
+const CACHE_NAME = 'baby-mode-v20260904-4';
 const APP_SHELL = [
   './', './index.html', './style.css', './analytics-config.js', './analytics.js', './tma.js',
   './account-storage.js', './web-account.js', './promo-copy.js', './partners.js', './cloud-sync.js', './pwa.js', './chat.js', './sleep-intelligence.js',
